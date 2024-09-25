@@ -1,28 +1,37 @@
 {
   "manifest_version": 2,
-
   "name": "CLUT: Cycle Last Used Tabs",
   "description": "Cycle through last used Chrome tabs using keyboard shortcut.",
   "version": "1.7",
   "short_name": "CLUT",
-
   "permissions": [
     "tabs"
   ],
-  "content_security_policy" : "script-src 'self' https://ssl.google-analytics.com; object-src 'self'",
+  //  "content_security_policy" : "script-src 'self' https://ssl.google-analytics.com; object-src 'self'",
   "icons": {
     "16": "icon16.png",
     "48": "icon48.png",
     "128": "icon128.png"
   },
-  "background":{
-    "scripts" : ["background.js"]
-  },
+    "background":{
+      "scripts" : ["background.js"]
+    },
+//  "content_scripts": [
+//    {
+//      "matches": [
+//        "https://*/*"
+//      ],
+//      "run_at": "document_end",
+//      "js": [
+//        "background.js"
+//      ]
+//    }
+//  ],
   "commands": {
     "alt_switch_fast": {
       "suggested_key": {
-        "default": "Alt+W",
-        "mac": "Alt+W"
+        "default": "Ctrl+E",
+        "mac": "Command+E"
       },
       "description": "Quick switch - Use to switch quickly among last 2 to 4 tabs. (Suggested: Alt+W)"
     },
@@ -43,5 +52,5 @@
   },
   "browser_action": {
     "default_icon": "icon16.png"
-  }
+    }
 }

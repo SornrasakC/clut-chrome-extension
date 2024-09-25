@@ -1,4 +1,3 @@
-
 var mru = [];
 var slowSwitchOngoing = false;
 var fastSwitchOngoing = false;
@@ -7,59 +6,21 @@ var lastIntSwitchIndex = 0;
 var altPressed = false;
 var wPressed = false;
 
-var domLoaded = false
-var quickActive = 0;
-var slowActive = 0;
-
-var prevTimestamp = 0;
-var slowtimerValue = 1500;
-var fasttimerValue = 200;
+var slowtimerValue = 2000;
+var fasttimerValue = 1200;
 var timer;
 
 var slowswitchForward = false;
 
 var initialized = false;
 
-var loggingOn = false;
+var loggingOn = true;
 
-var CLUTlog = function(str) {
+var CLUTlog = function(...args) {
 	if(loggingOn) {
-		console.log(str);
+		console.log(...args);
 	}
 }
-
-
-
-function onInstall() {
-	CLUTlog("Extension Installed");
-	chrome.windows.create({url:"http://www.harshay-buradkar.com/clut_update6.html"});
-}
-
-function onUpdate() {
-	CLUTlog("Extension Updated");
-	chrome.windows.create({url:"http://www.harshay-buradkar.com/clut_update6.html"});
-}
-
-function getVersion() {
-	var details = chrome.app.getDetails();
-	return details.version;
-}
-
-// Check if the version has changed.
-var currVersion = getVersion();
-var prevVersion = localStorage['version']
-CLUTlog("prev version: "+prevVersion);
-CLUTlog("curr version: "+currVersion);
-if (currVersion != prevVersion) {
-// Check if we just installed this extension.
-	if (typeof prevVersion == 'undefined') {
-        onInstall();
-    } else {
-		onUpdate();
-	}
-	localStorage['version'] = currVersion;
-}
-
 
 var processCommand = function(command) {
 	CLUTlog('Command recd:' + command);
@@ -67,15 +28,12 @@ var processCommand = function(command) {
 	slowswitchForward = false;
 	if(command == "alt_switch_fast") {
 		fastswitch = true;
-		quickSwitchActiveUsage();
 	} else if(command == "alt_switch_slow_backward") {
 		fastswitch = false;
 		slowswitchForward = false;
-		slowSwitchActiveUsage();
 	} else if(command == "alt_switch_slow_forward") {
 		fastswitch = false;
 		slowswitchForward = true;
-		slowSwitchActiveUsage();
 	}
 
 	if(!slowSwitchOngoing && !fastSwitchOngoing) {
@@ -151,9 +109,9 @@ var doIntSwitch = function() {
 		var invalidTab = true;
 		var thisWindowId;
 		if(slowswitchForward) {
-			decrementSwitchCounter();	
+			decrementSwitchCounter();
 		} else {
-			incrementSwitchCounter();	
+			incrementSwitchCounter();
 		}
 		tabIdToMakeActive = mru[intSwitchCount];
 		chrome.tabs.get(tabIdToMakeActive, function(tab) {
@@ -173,9 +131,9 @@ var doIntSwitch = function() {
 				}
 				doIntSwitch();
 			}
-		});	
+		});
 
-		
+
 	}
 }
 
@@ -198,7 +156,7 @@ chrome.tabs.onActivated.addListener(function(activeInfo){
 			CLUTlog("Unexpected scenario hit with tab("+activeInfo.tabId+").")
 			addTabToMRUAtFront(activeInfo.tabId)
 		} else {
-			putExistingTabToTop(activeInfo.tabId);	
+			putExistingTabToTop(activeInfo.tabId);
 		}
 	}
 });
@@ -223,21 +181,25 @@ var addTabToMRUAtBack = function(tabId) {
 	}
 
 }
-	
+
 var addTabToMRUAtFront = function(tabId) {
+	CLUTlog('new to front', tabId);
 
 	var index = mru.indexOf(tabId);
 	if(index == -1) {
 		//add to the front of mru
 		mru.splice(0, 0,tabId);
+		printMRUSimple();
 	}
-	
+
 }
 var putExistingTabToTop = function(tabId){
+	CLUTlog('existing to front', tabId);
 	var index = mru.indexOf(tabId);
 	if(index != -1) {
 		mru.splice(index, 1);
 		mru.unshift(tabId);
+		printMRUSimple();
 	}
 }
 
@@ -255,15 +217,11 @@ var removeItemAtIndexFromMRU = function(index) {
 }
 
 var incrementSwitchCounter = function() {
-	intSwitchCount = (intSwitchCount+1)%mru.length;
+	intSwitchCount = (intSwitchCount + 1) % mru.length;
 }
 
 var decrementSwitchCounter = function() {
-	if(intSwitchCount == 0) {
-		intSwitchCount = mru.length - 1;
-	} else {
-		intSwitchCount = intSwitchCount - 1;
-	}
+	intSwitchCount = intSwitchCount == 0 ? mru.length - 1 : intSwitchCount - 1;
 }
 
 var initialize = function() {
@@ -277,88 +235,18 @@ var initialize = function() {
 				});
 			});
 			CLUTlog("MRU after init: "+mru);
+			printMRUSimple()
 		});
 	}
-}	
-
-var printTabInfo = function(tabId) {
-	var info = "";
-	chrome.tabs.get(tabId, function(tab) {
-		info = "Tabid: "+tabId+" title: "+tab.title;
-	});
-	return info;
 }
 
-var str = "MRU status: \n";
-var printMRU = function() {
-	str = "MRU status: \n";
-	for(var i = 0; i < mru.length; i++) {		
-		chrome.tabs.get(mru[i], function(tab) {
-			
-		});				
-	}
-	CLUTlog(str);
+var printMRUSimple = async function() {
+	const tabs = await getTabs();
+	CLUTlog(tabs.map(t => `${t.index} - ${t.title}`));
 }
 
-var printMRUSimple = function() {
-	CLUTlog("mru: "+mru);
-}
-
-var generatePrintMRUString = function() {
-	chrome.tabs.query(function() {
-		
-	});
-	str += (i + " :("+tab.id+")"+tab.title);
-	str += "\n";
-
+async function getTabs() {
+	return Promise.all((mru || []).map(tabId => new Promise(resolve => chrome.tabs.get(tabId, resolve))))
 }
 
 initialize();
-
-var quickSwitchActiveUsage = function() {
-
-	if(domLoaded) {
-		if(quickActive == -1) {
-			return;
-		} else if(quickActive < 5){
-			quickActive++;
-		} else if(quickActive >= 5) {
-			_gaq.push(['_trackEvent', 'activeUsage', 'quick']);
-			quickActive = -1;
-		}
-	}
-}
-
-var slowSwitchActiveUsage = function() {
-
-	if(domLoaded) {
-		if(slowActive == -1) {
-			return;
-		} else if(slowActive < 5){
-			slowActive++;
-		} else if(slowActive >= 5) {
-			_gaq.push(['_trackEvent', 'activeUsage', 'slow']);
-			slowActive = -1;
-		}
-	}
-}
-
-//check for actual active users
-var _AnalyticsCode = 'UA-51920707-1';
-var _gaq = _gaq || [];
-_gaq.push(['_setAccount', _AnalyticsCode]);
-_gaq.push(['_trackPageview']);
-
-(function() {
-	var ga = document.createElement('script');
-	ga.type = 'text/javascript';
-	ga.async = true;
-	ga.src = 'https://ssl.google-analytics.com/ga.js';
-	//ga.src = 'https://ssl.google-analytics.com/u/ga_debug.js';
-	var s = document.getElementsByTagName('script')[0];
-	s.parentNode.insertBefore(ga, s);
-})();
-document.addEventListener('DOMContentLoaded', function () {
-	domLoaded = true;
-
-});
