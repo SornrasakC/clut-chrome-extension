@@ -245,8 +245,23 @@ var printMRUSimple = async function() {
 	CLUTlog(tabs.map(t => `${t.index} - ${t.title}`));
 }
 
+// async function getTabs() {
+// 	const tabs = await Promise.all((mru || []).map(tabId => new Promise(resolve => chrome.tabs.get(tabId, resolve))));
+// 	return tabs.filter(Boolean);
+// }
 async function getTabs() {
-	return Promise.all((mru || []).map(tabId => new Promise(resolve => chrome.tabs.get(tabId, resolve))))
+	const tabs = await Promise.all((mru || []).map(tabId => 
+		new Promise((resolve, reject) => {
+			chrome.tabs.get(tabId, tab => {
+				if (chrome.runtime.lastError) {
+					reject(chrome.runtime.lastError);
+				} else {
+					resolve(tab);
+				}
+			});
+		})
+	));
+	return tabs.filter(Boolean);
 }
 
 initialize();
