@@ -1,3 +1,4 @@
+// Use chrome.storage.local to store and retrieve these values
 var mru = [];
 var slowSwitchOngoing = false;
 var fastSwitchOngoing = false;
@@ -72,9 +73,10 @@ var processCommand = function(command) {
 		}
 	}
 	if(fastswitch) {
-		timer = setTimeout(function() {endSwitch()},fasttimerValue);
+		// Use chrome.alarms API instead of setTimeout
+		chrome.alarms.create('endSwitch', { delayInMinutes: fasttimerValue / 60000 });
 	} else {
-		timer = setTimeout(function() {endSwitch()},slowtimerValue);
+		chrome.alarms.create('endSwitch', { delayInMinutes: slowtimerValue / 60000 });
 	}
 
 };
@@ -84,28 +86,22 @@ chrome.commands.onCommand.addListener(processCommand);
 chrome.action.onClicked.addListener(function(tab) {
 	CLUTlog('Click recd');
 	processCommand('alt_switch_fast');
-
 });
 
 chrome.runtime.onStartup.addListener(function () {
 	CLUTlog("on startup");
 	initialize();
-
 });
 
 chrome.runtime.onInstalled.addListener(function () {
 	CLUTlog("on startup");
 	initialize();
-
 });
-
 
 var doIntSwitch = function() {
 	CLUTlog("CLUT:: in int switch, intSwitchCount: "+intSwitchCount+", mru.length: "+mru.length);
 	if (intSwitchCount < mru.length && intSwitchCount >= 0) {
 		var tabIdToMakeActive;
-		//check if tab is still present
-		//sometimes tabs have gone missing
 		var invalidTab = true;
 		var thisWindowId;
 		if(slowswitchForward) {
@@ -122,7 +118,6 @@ var doIntSwitch = function() {
 				chrome.windows.update(thisWindowId, {"focused":true});
 				chrome.tabs.update(tabIdToMakeActive, {active:true, highlighted: true});
 				lastIntSwitchIndex = intSwitchCount;
-				//break;
 			} else {
 				CLUTlog("CLUT:: in int switch, >>invalid tab found.intSwitchCount: "+intSwitchCount+", mru.length: "+mru.length);
 				removeItemAtIndexFromMRU(intSwitchCount);
@@ -132,8 +127,6 @@ var doIntSwitch = function() {
 				doIntSwitch();
 			}
 		});
-
-
 	}
 }
 
@@ -150,8 +143,6 @@ chrome.tabs.onActivated.addListener(function(activeInfo){
 	if(!slowSwitchOngoing && !fastSwitchOngoing) {
 		var index = mru.indexOf(activeInfo.tabId);
 
-		//probably should not happen since tab created gets called first than activated for new tabs,
-		// but added as a backup behavior to avoid orphan tabs
 		if(index == -1) {
 			CLUTlog("Unexpected scenario hit with tab("+activeInfo.tabId+").")
 			addTabToMRUAtFront(activeInfo.tabId)
@@ -171,28 +162,22 @@ chrome.tabs.onRemoved.addListener(function(tabId, removedInfo) {
 	removeTabFromMRU(tabId);
 });
 
-
 var addTabToMRUAtBack = function(tabId) {
-
 	var index = mru.indexOf(tabId);
 	if(index == -1) {
-		//add to the end of mru
 		mru.splice(-1, 0, tabId);
 	}
-
 }
 
 var addTabToMRUAtFront = function(tabId) {
 	CLUTlog('new to front', tabId);
-
 	var index = mru.indexOf(tabId);
 	if(index == -1) {
-		//add to the front of mru
 		mru.splice(0, 0,tabId);
 		printMRUSimple();
 	}
-
 }
+
 var putExistingTabToTop = function(tabId){
 	CLUTlog('existing to front', tabId);
 	var index = mru.indexOf(tabId);
@@ -225,7 +210,6 @@ var decrementSwitchCounter = function() {
 }
 
 var initialize = function() {
-
 	if(!initialized) {
 		initialized = true;
 		chrome.windows.getAll({populate:true},function(windows){
