@@ -1,6 +1,6 @@
 {
   "manifest_version": 3,
-  "name": "CLUT: Cycle Last Used Tabs",
+  "name": "CLUT: Cycle Last Used Tabs - MV3",
   "description": "Cycle through last used Chrome tabs using keyboard shortcut.",
   "version": "1.8",
   "short_name": "CLUT",
