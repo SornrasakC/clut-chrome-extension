@@ -2,10 +2,11 @@
   "manifest_version": 3,
   "name": "CLUT: Cycle Last Used Tabs - MV3",
   "description": "Cycle through last used Chrome tabs using keyboard shortcut.",
-  "version": "1.8",
+  "version": "2.0",
   "short_name": "CLUT",
   "permissions": [
-    "tabs"
+    "tabs",
+    "storage"
   ],
   "icons": {
     "16": "icon16.png",
@@ -40,5 +41,9 @@
   },
   "action": {
     "default_icon": "icon16.png"
+  },
+  "options_ui": {
+    "page": "options.html",
+    "open_in_tab": false
   }
 }
