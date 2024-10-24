@@ -6,8 +6,8 @@ var lastIntSwitchIndex = 0;
 var altPressed = false;
 var wPressed = false;
 
-var slowtimerValue = 2000;
-var fasttimerValue = 1200;
+var slowtimerValue = 1500;
+var fasttimerValue = 200;
 var timer;
 
 var slowswitchForward = false;
