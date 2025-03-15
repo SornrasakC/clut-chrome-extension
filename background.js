@@ -9,14 +9,170 @@ var wPressed = false;
 var slowtimerValue = 1500;
 var fasttimerValue = 200;
 var timer;
+var periodicSaveTimer = null;
+var PERIODIC_SAVE_INTERVAL = 30000; // Save state every 30 seconds
 
 var slowswitchForward = false;
 
 var initialized = false;
 var options = {};
 var currentWindowId;
+var stateHasBeenPersisted = false;
+var lastSavedMRU = [];
 
 var loggingOn = true;
+
+// Functions to persist and restore MRU data
+var saveMRUToStorage = function() {
+    // Only save if the MRU has changed
+    if (JSON.stringify(mru) !== JSON.stringify(lastSavedMRU)) {
+        chrome.storage.local.set({ 'mruList': mru }, function() {
+            if (chrome.runtime.lastError) {
+                CLUTlog("Error saving MRU list: " + chrome.runtime.lastError.message);
+            } else {
+                CLUTlog("MRU list saved to storage, length: " + mru.length);
+                lastSavedMRU = [...mru]; // Create a copy of the current MRU
+            }
+        });
+    } else {
+        CLUTlog("MRU unchanged, skipping save");
+    }
+};
+
+// Start periodic saving
+var startPeriodicSave = function() {
+    if (periodicSaveTimer) {
+        clearInterval(periodicSaveTimer);
+    }
+    
+    periodicSaveTimer = setInterval(function() {
+        CLUTlog("Performing periodic MRU save");
+        saveMRUToStorage();
+    }, PERIODIC_SAVE_INTERVAL);
+    
+    CLUTlog("Started periodic MRU saving every " + (PERIODIC_SAVE_INTERVAL/1000) + " seconds");
+};
+
+// Stop periodic saving
+var stopPeriodicSave = function() {
+    if (periodicSaveTimer) {
+        clearInterval(periodicSaveTimer);
+        periodicSaveTimer = null;
+        CLUTlog("Stopped periodic MRU saving");
+    }
+};
+
+var restoreMRUFromStorage = function() {
+    chrome.storage.local.get(['mruList'], function(result) {
+        if (result.mruList && Array.isArray(result.mruList) && result.mruList.length > 0) {
+            mru = result.mruList;
+            CLUTlog("MRU list restored from storage, length: " + mru.length);
+            // Validate the tabs in the restored MRU to ensure they still exist
+            validateMRUTabs();
+        } else {
+            CLUTlog("No valid MRU list found in storage, initializing fresh");
+            // If no MRU list in storage, initialize from scratch
+            refreshMRUFromCurrentTabs();
+        }
+    });
+};
+
+var validateMRUTabs = function() {
+    // First check if we have any tabs to validate
+    if (!mru || mru.length === 0) {
+        CLUTlog("Empty MRU list, refreshing from current tabs");
+        refreshMRUFromCurrentTabs();
+        return;
+    }
+
+    // Filter out tab IDs that no longer exist
+    const tabPromises = mru.map(tabId => 
+        new Promise(resolve => {
+            chrome.tabs.get(tabId, tab => {
+                if (chrome.runtime.lastError) {
+                    CLUTlog(`Tab ${tabId} no longer exists, will be removed from MRU`);
+                    resolve(null); // Tab doesn't exist anymore
+                } else {
+                    resolve(tabId); // Tab still exists
+                }
+            });
+        })
+    );
+    
+    Promise.all(tabPromises).then(validTabIds => {
+        // Filter out null values (tabs that no longer exist)
+        const newMRU = validTabIds.filter(tabId => tabId !== null);
+        
+        if (newMRU.length === 0) {
+            CLUTlog("All tabs in MRU are invalid, refreshing from current tabs");
+            refreshMRUFromCurrentTabs();
+        } else if (newMRU.length !== mru.length) {
+            CLUTlog(`Removed ${mru.length - newMRU.length} invalid tabs from MRU, ${newMRU.length} remain`);
+            mru = newMRU;
+            saveMRUToStorage();
+        } else {
+            CLUTlog("All tabs in MRU are valid");
+        }
+    }).catch(error => {
+        CLUTlog("Error validating MRU tabs:", error);
+        // As a failsafe, refresh from current tabs on error
+        refreshMRUFromCurrentTabs();
+    });
+};
+
+var refreshMRUFromCurrentTabs = function() {
+    mru = [];
+    chrome.windows.getAll({ populate: true }, function(windows) {
+        windows.forEach(function(window) {
+            window.tabs.forEach(function(tab) {
+                mru.unshift(tab.id);
+            });
+        });
+        CLUTlog("MRU refreshed from current tabs: " + mru.length + " tabs");
+        saveMRUToStorage();
+        printMRUSimple();
+    });
+};
+
+// Listen for service worker lifecycle events
+chrome.runtime.onStartup.addListener(function() {
+    CLUTlog("Extension startup");
+    initialize();
+});
+
+// Also handles extension installation and updates
+chrome.runtime.onInstalled.addListener(function() {
+    CLUTlog("Extension installed/updated");
+    initialize();
+});
+
+// Listen for when the service worker is about to be terminated
+self.addEventListener('freeze', () => {
+    CLUTlog("Service worker freezing - saving state");
+    stateHasBeenPersisted = true;
+    stopPeriodicSave(); // Stop periodic saving as we're about to be suspended
+    saveMRUToStorage();
+});
+
+// Listen for when the service worker resumes after being inactive
+self.addEventListener('resume', () => {
+    CLUTlog("Service worker resuming - restoring state");
+    if (stateHasBeenPersisted) {
+        restoreMRUFromStorage();
+    }
+    startPeriodicSave(); // Restart periodic saving
+});
+
+// For Manifest V3, also check at the first wake-up if we need to restore
+if (typeof chrome.runtime.onSuspend !== 'undefined') {
+    // This is a V3 service worker that might have been suspended
+    chrome.runtime.onSuspend.addListener(() => {
+        CLUTlog("Service worker suspending - saving state");
+        stopPeriodicSave();
+        saveMRUToStorage();
+        stateHasBeenPersisted = true;
+    });
+}
 
 var CLUTlog = function (...args) {
     if (loggingOn) {
@@ -85,16 +241,6 @@ chrome.commands.onCommand.addListener(processCommand);
 chrome.action.onClicked.addListener(function (tab) {
     CLUTlog("Click recd");
     processCommand("alt_switch_fast");
-});
-
-chrome.runtime.onStartup.addListener(function () {
-    CLUTlog("on startup");
-    initialize();
-});
-
-chrome.runtime.onInstalled.addListener(function () {
-    CLUTlog("on startup");
-    initialize();
 });
 
 var doIntSwitch = function (recurseLevel = 0) {
@@ -205,6 +351,7 @@ var addTabToMRUAtBack = function (tabId) {
     if (index == -1) {
         //add to the end of mru
         mru.splice(-1, 0, tabId);
+        saveMRUToStorage(); // Save MRU after modification
     }
 };
 
@@ -216,6 +363,7 @@ var addTabToMRUAtFront = function (tabId) {
         //add to the front of mru
         mru.splice(0, 0, tabId);
         printMRUSimple();
+        saveMRUToStorage(); // Save MRU after modification
     }
 };
 var putExistingTabToTop = function (tabId) {
@@ -225,6 +373,7 @@ var putExistingTabToTop = function (tabId) {
         mru.splice(index, 1);
         mru.unshift(tabId);
         printMRUSimple();
+        saveMRUToStorage(); // Save MRU after modification
     }
 };
 
@@ -232,12 +381,14 @@ var removeTabFromMRU = function (tabId) {
     var index = mru.indexOf(tabId);
     if (index != -1) {
         mru.splice(index, 1);
+        saveMRUToStorage(); // Save MRU after modification
     }
 };
 
 var removeItemAtIndexFromMRU = function (index) {
     if (index < mru.length) {
         mru.splice(index, 1);
+        saveMRUToStorage(); // Save MRU after modification
     }
 };
 
@@ -252,14 +403,23 @@ var decrementSwitchCounter = function () {
 var initialize = function () {
     if (!initialized) {
         initialized = true;
-        chrome.windows.getAll({ populate: true }, function (windows) {
-            windows.forEach(function (window) {
-                window.tabs.forEach(function (tab) {
-                    mru.unshift(tab.id);
-                });
-            });
-            CLUTlog("MRU after init: " + mru);
-            printMRUSimple();
+        CLUTlog("Initializing CLUT extension");
+        
+        // First check if we have a persisted state
+        chrome.storage.local.get(['mruList'], function(result) {
+            if (result.mruList && Array.isArray(result.mruList) && result.mruList.length > 0) {
+                CLUTlog("Found persisted MRU list with " + result.mruList.length + " tabs");
+                stateHasBeenPersisted = true;
+                mru = result.mruList;
+                lastSavedMRU = [...mru]; // Initialize last saved state
+                validateMRUTabs(); // Validate the tabs in case some were closed while inactive
+            } else {
+                CLUTlog("No persisted state found, building initial MRU list");
+                refreshMRUFromCurrentTabs();
+            }
+            
+            // Start periodic saving
+            startPeriodicSave();
         });
     }
 };
@@ -286,5 +446,22 @@ async function getTabs() {
     );
     return tabs.filter(Boolean);
 }
+
+// Additionally listen for storage changes to detect if another instance updated the MRU
+chrome.storage.onChanged.addListener(function(changes, areaName) {
+    if (areaName === 'local' && changes.mruList && !slowSwitchOngoing && !fastSwitchOngoing) {
+        // Only update if we're not in the middle of a switch operation
+        CLUTlog("MRU list changed in storage, considering update");
+        
+        // If the new list is significantly different (not just our own update), restore it
+        const newMRU = changes.mruList.newValue;
+        if (Array.isArray(newMRU) && 
+            (mru.length !== newMRU.length || 
+             JSON.stringify(mru) !== JSON.stringify(newMRU))) {
+            CLUTlog("Significant MRU change detected, updating local state");
+            mru = newMRU;
+        }
+    }
+});
 
 initialize();
