@@ -77,14 +77,36 @@ var restoreMRUFromStorage = function() {
     });
 };
 
-var validateMRUTabs = function() {
+var validateMRUTabs = function(callback) {
     // First check if we have any tabs to validate
     if (!mru || mru.length === 0) {
         CLUTlog("Empty MRU list, refreshing from current tabs");
         refreshMRUFromCurrentTabs();
+        if (callback) callback();
         return;
     }
 
+    // Use a faster validation method when called during activation
+    if (callback) {
+        // Just check the first tab for quick validation
+        chrome.tabs.get(mru[0], tab => {
+            if (chrome.runtime.lastError) {
+                CLUTlog("First tab in MRU is invalid, doing full validation");
+                // If first tab is invalid, do a full validation
+                performFullValidation(callback);
+            } else {
+                CLUTlog("Quick validation passed");
+                if (callback) callback();
+            }
+        });
+        return;
+    }
+
+    // Otherwise do the full validation
+    performFullValidation(callback);
+};
+
+var performFullValidation = function(callback) {
     // Filter out tab IDs that no longer exist
     const tabPromises = mru.map(tabId => 
         new Promise(resolve => {
@@ -113,10 +135,13 @@ var validateMRUTabs = function() {
         } else {
             CLUTlog("All tabs in MRU are valid");
         }
+        
+        if (callback) callback();
     }).catch(error => {
         CLUTlog("Error validating MRU tabs:", error);
         // As a failsafe, refresh from current tabs on error
         refreshMRUFromCurrentTabs();
+        if (callback) callback();
     });
 };
 
@@ -157,9 +182,38 @@ self.addEventListener('freeze', () => {
 // Listen for when the service worker resumes after being inactive
 self.addEventListener('resume', () => {
     CLUTlog("Service worker resuming - restoring state");
+    // Reset switch states to ensure we're in a clean state
+    slowSwitchOngoing = false;
+    fastSwitchOngoing = false;
+    intSwitchCount = 0;
+    isExtensionReady = false; // Mark as not ready during resume
+    
     if (stateHasBeenPersisted) {
-        restoreMRUFromStorage();
+        // First restore the MRU list
+        chrome.storage.local.get(['mruList'], function(result) {
+            if (result.mruList && Array.isArray(result.mruList) && result.mruList.length > 0) {
+                mru = result.mruList;
+                CLUTlog("MRU list restored from storage, length: " + mru.length);
+                
+                // Then validate tabs with a callback to mark as ready when done
+                validateMRUTabs(function() {
+                    isExtensionReady = true;
+                    CLUTlog("Extension is fully activated and ready for commands after resume");
+                });
+            } else {
+                // If no valid MRU list, refresh and mark as ready
+                refreshMRUFromCurrentTabs();
+                setTimeout(function() {
+                    isExtensionReady = true;
+                    CLUTlog("Extension is ready for commands after refresh");
+                }, 200);
+            }
+        });
+    } else {
+        // If no persisted state, just mark as ready
+        isExtensionReady = true;
     }
+    
     startPeriodicSave(); // Restart periodic saving
 });
 
@@ -180,60 +234,109 @@ var CLUTlog = function (...args) {
     }
 };
 
+// Add a readiness flag and checker
+var isExtensionReady = false;
+
+// Function to ensure extension is ready before processing commands
+var ensureExtensionReady = function(callback) {
+    if (isExtensionReady) {
+        callback();
+        return;
+    }
+    
+    CLUTlog("Extension not ready yet - preparing for command");
+    
+    // If not ready, try faster preparation
+    if (mru.length === 0) {
+        CLUTlog("Empty MRU list, loading from storage");
+        // Quick restore from storage
+        chrome.storage.local.get(['mruList'], function(result) {
+            if (result.mruList && Array.isArray(result.mruList) && result.mruList.length > 0) {
+                mru = result.mruList;
+                CLUTlog("Loaded " + mru.length + " tabs for immediate command processing");
+                isExtensionReady = true;
+                callback();
+            } else {
+                // No stored MRU list, build one immediately
+                chrome.windows.getAll({ populate: true }, function(windows) {
+                    mru = [];
+                    windows.forEach(function(window) {
+                        window.tabs.forEach(function(tab) {
+                            mru.unshift(tab.id);
+                        });
+                    });
+                    CLUTlog("Built new MRU list with " + mru.length + " tabs for immediate command");
+                    isExtensionReady = true;
+                    callback();
+                });
+            }
+        });
+    } else {
+        // We have an MRU list but aren't ready yet - just mark as ready and proceed
+        CLUTlog("MRU list already exists, proceeding with command");
+        isExtensionReady = true;
+        callback();
+    }
+};
+
 var processCommand = function (command) {
     CLUTlog("Command recd:" + command);
-    var fastswitch = true;
-    slowswitchForward = false;
-    if (command == "alt_switch_fast") {
-        fastswitch = true;
-    } else if (command == "alt_switch_slow_backward") {
-        fastswitch = false;
+    
+    // Ensure extension is ready before processing the command
+    ensureExtensionReady(function() {
+        var fastswitch = true;
         slowswitchForward = false;
-    } else if (command == "alt_switch_slow_forward") {
-        fastswitch = false;
-        slowswitchForward = true;
-    }
+        if (command == "alt_switch_fast") {
+            fastswitch = true;
+        } else if (command == "alt_switch_slow_backward") {
+            fastswitch = false;
+            slowswitchForward = false;
+        } else if (command == "alt_switch_slow_forward") {
+            fastswitch = false;
+            slowswitchForward = true;
+        }
 
-    if (!slowSwitchOngoing && !fastSwitchOngoing) {
-        if (fastswitch) {
+        if (!slowSwitchOngoing && !fastSwitchOngoing) {
+            if (fastswitch) {
+                fastSwitchOngoing = true;
+            } else {
+                slowSwitchOngoing = true;
+            }
+            CLUTlog("CLUT::START_SWITCH");
+            intSwitchCount = 0;
+            doIntSwitch();
+        } else if ((slowSwitchOngoing && !fastswitch) || (fastSwitchOngoing && fastswitch)) {
+            CLUTlog("CLUT::DO_INT_SWITCH");
+            doIntSwitch();
+        } else if (slowSwitchOngoing && fastswitch) {
+            endSwitch();
             fastSwitchOngoing = true;
-        } else {
+            CLUTlog("CLUT::START_SWITCH");
+            intSwitchCount = 0;
+            doIntSwitch();
+        } else if (fastSwitchOngoing && !fastswitch) {
+            endSwitch();
             slowSwitchOngoing = true;
+            CLUTlog("CLUT::START_SWITCH");
+            intSwitchCount = 0;
+            doIntSwitch();
         }
-        CLUTlog("CLUT::START_SWITCH");
-        intSwitchCount = 0;
-        doIntSwitch();
-    } else if ((slowSwitchOngoing && !fastswitch) || (fastSwitchOngoing && fastswitch)) {
-        CLUTlog("CLUT::DO_INT_SWITCH");
-        doIntSwitch();
-    } else if (slowSwitchOngoing && fastswitch) {
-        endSwitch();
-        fastSwitchOngoing = true;
-        CLUTlog("CLUT::START_SWITCH");
-        intSwitchCount = 0;
-        doIntSwitch();
-    } else if (fastSwitchOngoing && !fastswitch) {
-        endSwitch();
-        slowSwitchOngoing = true;
-        CLUTlog("CLUT::START_SWITCH");
-        intSwitchCount = 0;
-        doIntSwitch();
-    }
 
-    if (timer) {
-        if (fastSwitchOngoing || slowSwitchOngoing) {
-            clearTimeout(timer);
+        if (timer) {
+            if (fastSwitchOngoing || slowSwitchOngoing) {
+                clearTimeout(timer);
+            }
         }
-    }
-    if (fastswitch) {
-        timer = setTimeout(function () {
-            endSwitch();
-        }, fasttimerValue);
-    } else {
-        timer = setTimeout(function () {
-            endSwitch();
-        }, slowtimerValue);
-    }
+        if (fastswitch) {
+            timer = setTimeout(function () {
+                endSwitch();
+            }, fasttimerValue);
+        } else {
+            timer = setTimeout(function () {
+                endSwitch();
+            }, slowtimerValue);
+        }
+    });
 };
 
 chrome.commands.onCommand.addListener(processCommand);
@@ -404,6 +507,7 @@ var initialize = function () {
     if (!initialized) {
         initialized = true;
         CLUTlog("Initializing CLUT extension");
+        isExtensionReady = false; // Reset readiness flag during initialization
         
         // First check if we have a persisted state
         chrome.storage.local.get(['mruList'], function(result) {
@@ -413,9 +517,21 @@ var initialize = function () {
                 mru = result.mruList;
                 lastSavedMRU = [...mru]; // Initialize last saved state
                 validateMRUTabs(); // Validate the tabs in case some were closed while inactive
+                
+                // Set a short timeout to ensure everything is loaded before marking as ready
+                setTimeout(function() {
+                    isExtensionReady = true;
+                    CLUTlog("Extension is ready for commands");
+                }, 200);
             } else {
                 CLUTlog("No persisted state found, building initial MRU list");
                 refreshMRUFromCurrentTabs();
+                
+                // Set a short timeout to ensure everything is loaded before marking as ready
+                setTimeout(function() {
+                    isExtensionReady = true;
+                    CLUTlog("Extension is ready for commands");
+                }, 200);
             }
             
             // Start periodic saving
