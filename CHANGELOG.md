@@ -1,6 +1,10 @@
 # Changelog
 All notable changes to the CLUT (Cycle Last Used Tabs) extension will be documented in this file.
 
+## [2.5]
+### Fixed
+- Fixed issue where tab switching could "switch" to the already active tab, now automatically continues to the next tab in MRU list
+
 ## [2.4]
 ### Fixed
 - Fixed issue with previous MRU list being overwritten by [onActivated, onCreated, onRemoved] events after extension is activated

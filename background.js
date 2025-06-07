@@ -267,6 +267,14 @@ var doIntSwitch = function (recurseLevel = 0) {
             return;
         }
 
+        // Check if the tab is already active - if so, continue to next tab
+        if (tab.active) {
+            CLUTlog("CLUT:: tab is already active, continuing to next tab");
+            doIntSwitch(recurseLevel + 1);
+            return;
+        }
+
+
         chrome.windows.update(tab.windowId, { focused: true });
         chrome.tabs.update(tabIdToMakeActive, { active: true, highlighted: true });
         lastIntSwitchIndex = intSwitchCount;
