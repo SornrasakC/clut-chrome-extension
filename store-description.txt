@@ -1,0 +1,18 @@
+Name
+MRU Tab Switcher
+
+Short description
+Cycle through last used Chrome tabs using keyboard shortcut.
+
+Full description
+MRU Tab Switcher is a fork of "CLUT: Cycle Last Used Tabs"
+https://chromewebstore.google.com/detail/clut-cycle-last-used-tabs/cobieddmkhhnbeldhncnfcgcaccmehgn
+
+
+Extra features in this fork (at the time of writing):
+- Window-scope toggle -- keep the cycle inside the active Chrome window instead of jumping across every window.
+    - Can be changed at extension options page: chrome://extensions/?options=efcjjmicbheekeidonjgopibknedefbp
+
+Everything else matches the original extension.
+
+Open-source: https://github.com/SornrasakC/clut-chrome-extension

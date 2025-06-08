@@ -24,7 +24,7 @@ function restore_options() {
     // Use default value color = 'red' and likesColor = true.
     chrome.storage.sync.get(
         {
-            onlySameWindow: false
+            onlySameWindow: true
         },
         function (items) {
             document.getElementById("only-same-window").checked = items.onlySameWindow;

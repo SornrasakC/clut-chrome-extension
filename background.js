@@ -461,7 +461,7 @@ chrome.tabs.onRemoved.addListener(function (tabId, removedInfo) {
 
 chrome.storage.sync.get(
     {
-        onlySameWindow: false
+        onlySameWindow: true
     },
     function (items) {
         options.onlySameWindow = items.onlySameWindow;
